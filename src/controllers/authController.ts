@@ -253,6 +253,47 @@ export const otpVerification = async (req: Request, res: Response): Promise<void
 };
 
 
+export const savePassword = async (req: Request, res: Response): Promise<void> => {
+  const { email, newPassword } = req.body as {
+    email: string;
+    newPassword: string;
+  };
+
+  try {
+    // 1. Find the user
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    // 2. Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 3. Update the password in database
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    // 4. Delete all old reset tokens for security
+    await prisma.passwordResetToken.deleteMany({
+      where: { userId: user.id },
+    });
+
+    // 5. Response
+    res.status(200).json({
+      message: "Password updated successfully",
+    });
+
+  } catch (error) {
+    console.error("Save Password Error:", (error as Error).message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+
+
 
 export const refreshAccessToken = async (req: Request, res: Response) => {
   try {
