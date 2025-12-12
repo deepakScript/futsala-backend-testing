@@ -4,8 +4,8 @@ import { getAllVenues, getVenueById, searchVenues } from "../controllers/futsalC
 
 const router = express.Router();
 
-router.get("/", getAllVenues);
-router.get("/search-venue", searchVenues);
-router.get("/:id", getVenueById);
+router.get("/venue", getAllVenues);
+router.get("/venue-search", searchVenues);
+router.get("/venue/:id", getVenueById);
 
 export default router;
