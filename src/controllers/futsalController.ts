@@ -107,7 +107,7 @@ export const getVenueById = async (req: Request, res: Response): Promise<Respons
           orderBy: {
             createdAt: 'desc'
           },
-          take: 10 // Get latest 10 reviews
+          take: 2 // Get latest 10 reviews
         }
       }
     });
@@ -197,7 +197,7 @@ export const searchVenues = async (req: Request, res: Response): Promise<Respons
           select: {
             id: true,
             name: true,
-            courtType: true,
+            courtType: false,
             surfaceType: true,
             isIndoor: true,
             pricePerHour: true
