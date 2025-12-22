@@ -2,15 +2,8 @@
 import { Request, Response } from 'express';
 import prisma from '../config/prismaClient';
 
-
-// Extend Express Request type to include user
-interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
+// Note: Request type is already extended globally in verifyToken.ts middleware
+// with DecodedUser interface that includes userId, email, etc.
 
 // Interface for update request body
 interface UpdateProfileBody {
@@ -23,9 +16,9 @@ interface UpdateProfileBody {
  * Get logged-in user profile
  * @route GET /me
  */
-export const getProfile = async (req: AuthRequest, res: Response): Promise<Response> => {
+export const getProfile = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -73,9 +66,9 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<Respo
  * Update profile information
  * @route PUT /update
  */
-export const updateProfile = async (req: AuthRequest, res: Response): Promise<Response> => {
+export const updateProfile = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -141,9 +134,9 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<Re
  * Delete user account
  * @route DELETE /delete
  */
-export const deleteAccount = async (req: AuthRequest, res: Response): Promise<Response> => {
+export const deleteAccount = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({

@@ -6,6 +6,7 @@ import pool from "./config/db";
 import morgan from "morgan";
 import authRoutes from "./routes/authRoutes";
 import futsalRoutes from "./routes/futsalRoutes";
+import bookingRoutes from "./routes/bookingRoutes";
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.get("/test-db", async (req, res) => {
 // test route
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/futsal", futsalRoutes);
+app.use("/api/v1/booking",bookingRoutes);
 
 
 

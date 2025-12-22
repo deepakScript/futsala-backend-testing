@@ -1,25 +1,14 @@
 // Booking Controller
 import { Request, Response } from 'express';
+import { BookingStatus } from '@prisma/client';
 import prisma from '../config/prismaClient';
 
 
-// BookingStatus enum (should match your Prisma schema)
-enum BookingStatus {
-  PENDING = 'PENDING',
-  CONFIRMED = 'CONFIRMED',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-  REJECTED = 'REJECTED'
-}
+// BookingStatus enum imported from prisma client
 
-// Extend Express Request type to include user
-interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
+
+// Note: Request type is already extended globally in verifyToken.ts middleware
+// The user property has type DecodedUser with userId field
 
 // Interface for create booking request body
 interface CreateBookingBody {
@@ -54,8 +43,24 @@ export const checkAvailability = async (req: Request, res: Response): Promise<Re
     }
 
     // Parse the date and get day of week
+    // Ensure we are working with the start of the day
     const bookingDate = new Date(date);
+    // basic validation
+    if (isNaN(bookingDate.getTime())) {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid date format'
+        });
+    }
+    
     const dayOfWeek = bookingDate.getDay(); // 0-6 (Sunday-Saturday)
+    
+    // Create start and end of day dates for the query
+    const startOfDay = new Date(bookingDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(startOfDay);
+    endOfDay.setDate(endOfDay.getDate() + 1);
 
     // Get all courts for this venue
     const courts = await prisma.court.findMany({
@@ -76,11 +81,11 @@ export const checkAvailability = async (req: Request, res: Response): Promise<Re
         bookings: {
           where: {
             bookingDate: {
-              gte: new Date(date),
-              lt: new Date(new Date(date).setDate(new Date(date).getDate() + 1))
+              gte: startOfDay,
+              lt: endOfDay
             },
             status: {
-              notIn: [BookingStatus.CANCELLED, BookingStatus.REJECTED]
+              notIn: [BookingStatus.CANCELLED]
             }
           }
         }
@@ -133,9 +138,10 @@ export const checkAvailability = async (req: Request, res: Response): Promise<Re
  * Create a new booking
  * @route POST /create
  */
-export const createBooking = async (req: AuthRequest, res: Response): Promise<Response> => {
+export const createBooking = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    // const userId = req.user?.userId;
+    const userId = "80603105-16b4-4ee6-a8a8-80e31fc420ac"
 
     if (!userId) {
       return res.status(401).json({
@@ -154,91 +160,103 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<Re
       });
     }
 
-    // Get court details
-    const court = await prisma.court.findUnique({
-      where: { id: courtId },
-      include: { venue: true }
-    });
-
-    if (!court || !court.isActive) {
-      return res.status(404).json({
-        success: false,
-        message: 'Court not found or inactive'
-      });
+    const bookingDateObj = new Date(bookingDate);
+     if (isNaN(bookingDateObj.getTime())) {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid date format'
+        });
     }
 
-    // Calculate total hours and price
-    const start = parseTime(startTime);
-    const end = parseTime(endTime);
-    const totalHours = (end - start) / 60; // Convert minutes to hours
+    // Use a transaction to prevent race conditions
+    const booking = await prisma.$transaction(async (tx) => {
+        // Validate user exists
+        const user = await tx.user.findUnique({
+          where: { id: userId }
+        });
 
-    if (totalHours <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid time range'
-      });
-    }
-
-    const totalPrice = totalHours * court.pricePerHour;
-
-    // Check if slot is already booked
-    const existingBooking = await prisma.booking.findFirst({
-      where: {
-        courtId: courtId,
-        bookingDate: new Date(bookingDate),
-        status: {
-          notIn: [BookingStatus.CANCELLED, BookingStatus.REJECTED]
-        },
-        OR: [
-          {
-            AND: [
-              { startTime: { lte: startTime } },
-              { endTime: { gt: startTime } }
-            ]
-          },
-          {
-            AND: [
-              { startTime: { lt: endTime } },
-              { endTime: { gte: endTime } }
-            ]
-          },
-          {
-            AND: [
-              { startTime: { gte: startTime } },
-              { endTime: { lte: endTime } }
-            ]
-          }
-        ]
-      }
-    });
-
-    if (existingBooking) {
-      return res.status(409).json({
-        success: false,
-        message: 'Time slot is already booked'
-      });
-    }
-
-    // Create booking
-    const booking = await prisma.booking.create({
-      data: {
-        userId,
-        courtId,
-        bookingDate: new Date(bookingDate),
-        startTime,
-        endTime,
-        totalHours,
-        totalPrice,
-        notes,
-        status: BookingStatus.PENDING
-      },
-      include: {
-        court: {
-          include: {
-            venue: true
-          }
+        if (!user) {
+          throw new Error('User not found. Please ensure you are using a valid user ID.');
         }
-      }
+
+        // Get court details
+        const court = await tx.court.findUnique({
+
+          where: { id: courtId },
+          include: { venue: true }
+        });
+
+        if (!court || !court.isActive) {
+          throw new Error('Court not found or inactive');
+        }
+
+        // Calculate total hours and price
+        const start = parseTime(startTime);
+        const end = parseTime(endTime);
+        const totalHours = (end - start) / 60; // Convert minutes to hours
+
+        if (totalHours <= 0) {
+          throw new Error('Invalid time range');
+        }
+
+        const totalPrice = totalHours * court.pricePerHour;
+
+        // Check if slot is already booked (LOCKING/CHECKING within transaction)
+        const existingBooking = await tx.booking.findFirst({
+          where: {
+            courtId: courtId,
+            bookingDate: bookingDateObj,
+            status: {
+              notIn: [BookingStatus.CANCELLED]
+            },
+            OR: [
+              {
+                AND: [
+                  { startTime: { lte: startTime } },
+                  { endTime: { gt: startTime } }
+                ]
+              },
+              {
+                AND: [
+                  { startTime: { lt: endTime } },
+                  { endTime: { gte: endTime } }
+                ]
+              },
+              {
+                AND: [
+                  { startTime: { gte: startTime } },
+                  { endTime: { lte: endTime } }
+                ]
+              }
+            ]
+          }
+        });
+
+        if (existingBooking) {
+          throw new Error('Time slot is already booked');
+        }
+
+        // Create booking
+        return await tx.booking.create({
+          data: {
+            userId,
+            courtId,
+            bookingDate: bookingDateObj,
+            startTime,
+            endTime,
+            totalHours,
+            totalPrice,
+            notes,
+            status: BookingStatus.PENDING
+          },
+          include: {
+            court: {
+              include: {
+                venue: true
+              }
+            }
+          }
+        });
     });
 
     return res.status(201).json({
@@ -247,10 +265,39 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<Re
       data: booking
     });
   } catch (error) {
+    console.error('Create Booking Error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Handle specific errors from the transaction
+    if (errorMessage.includes('User not found')) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'User not found. Please ensure you are logged in with a valid account.' 
+        });
+    }
+    if (errorMessage === 'Court not found or inactive') {
+        return res.status(404).json({ success: false, message: errorMessage });
+    }
+    if (errorMessage === 'Invalid time range') {
+        return res.status(400).json({ success: false, message: errorMessage });
+    }
+    if (errorMessage === 'Time slot is already booked') {
+        return res.status(409).json({ success: false, message: errorMessage });
+    }
+    
+    // Handle Prisma foreign key constraint errors
+    if (errorMessage.includes('Foreign key constraint')) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid reference: User or Court does not exist in the database.',
+          error: errorMessage 
+        });
+    }
+
     return res.status(500).json({
       success: false,
       message: 'Failed to create booking',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: errorMessage
     });
   }
 };
@@ -259,9 +306,9 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<Re
  * Get all bookings of logged-in user
  * @route GET /my
  */
-export const getMyBookings = async (req: AuthRequest, res: Response): Promise<Response> => {
+export const getMyBookings = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -312,9 +359,9 @@ export const getMyBookings = async (req: AuthRequest, res: Response): Promise<Re
  * Get booking details
  * @route GET /:id
  */
-export const getBookingById = async (req: AuthRequest, res: Response): Promise<Response> => {
+export const getBookingById = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     const { id } = req.params;
 
     if (!userId) {
@@ -376,9 +423,9 @@ export const getBookingById = async (req: AuthRequest, res: Response): Promise<R
  * Cancel a booking
  * @route PUT /cancel/:id
  */
-export const cancelBooking = async (req: AuthRequest, res: Response): Promise<Response> => {
+export const cancelBooking = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     const { id } = req.params;
 
     if (!userId) {
@@ -455,9 +502,9 @@ export const cancelBooking = async (req: AuthRequest, res: Response): Promise<Re
  * Reschedule a booking
  * @route PUT /reschedule/:id
  */
-export const rescheduleBooking = async (req: AuthRequest, res: Response): Promise<Response> => {
+export const rescheduleBooking = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     const { id } = req.params;
     const { bookingDate, startTime, endTime } = req.body as RescheduleBookingBody;
 
@@ -547,7 +594,7 @@ export const rescheduleBooking = async (req: AuthRequest, res: Response): Promis
         courtId: booking.courtId,
         bookingDate: newBookingDate,
         status: {
-          notIn: [BookingStatus.CANCELLED, BookingStatus.REJECTED]
+          notIn: [BookingStatus.CANCELLED]
         },
         OR: [
           {

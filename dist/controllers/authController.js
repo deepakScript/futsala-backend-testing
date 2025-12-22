@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAllUsers = exports.refreshAccessToken = exports.forgotPassword = exports.loginUser = exports.registerUser = void 0;
+exports.getAllUsers = exports.refreshAccessToken = exports.savePassword = exports.otpVerification = exports.forgotPassword = exports.loginUser = exports.registerUser = void 0;
 const prismaClient_1 = __importDefault(require("../config/prismaClient"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
@@ -52,7 +52,7 @@ const registerUser = async (req, res) => {
                 return res.status(400).json({ error: "Email already exists" });
             }
         }
-        res.status(500).json({ error: "Registration feeled" });
+        res.status(500).json({ error: "Registration failed" });
         console.log(error);
     }
 };
@@ -121,22 +121,37 @@ const forgotPassword = async (req, res) => {
             res.status(404).json({ message: "User not found" });
             return;
         }
-        const resetToken = crypto_1.default.randomBytes(32).toString("hex");
-        const hashedToken = crypto_1.default.createHash("sha256").update(resetToken).digest("hex");
-        const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour expiry
-        // Store hashed token in DB
+        // Generate 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        // Hash OTP before storing
+        const hashedOtp = crypto_1.default.createHash("sha256").update(otp).digest("hex");
+        const expiresAt = new Date(Date.now() + 1000 * 60 * 10); // 10 minutes expiry
+        console.log("rest token taken");
+        // Delete old OTPs for this user (optional but recommended)
+        await prismaClient_1.default.passwordResetToken.deleteMany({
+            where: { userId: user.id }
+        });
+        // Save new OTP
         await prismaClient_1.default.passwordResetToken.create({
             data: {
-                token: hashedToken,
+                token: hashedOtp,
                 userId: user.id,
                 expiresAt,
             },
         });
-        const html = `<p>Your password reset token is:</p><b>${resetToken}</b>`;
-        await (0, sendMail_1.default)({ to: user.email, subject: "Password Reset Token", html });
+        // Email OTP
+        const html = `
+      <p>Your password reset OTP is:</p>
+      <h2>${otp}</h2>
+      <p>This OTP will expire in 10 minutes.</p>
+    `;
+        await (0, sendMail_1.default)({
+            to: user.email,
+            subject: "Password Reset OTP",
+            html,
+        });
         res.status(200).json({
-            message: "Reset token sent to email",
-            // Don't send the token in the response for security
+            message: "OTP sent to email",
         });
     }
     catch (error) {
@@ -145,6 +160,81 @@ const forgotPassword = async (req, res) => {
     }
 };
 exports.forgotPassword = forgotPassword;
+const otpVerification = async (req, res) => {
+    const { email, otp } = req.body;
+    try {
+        // 1. Find the user
+        const user = await prismaClient_1.default.user.findUnique({ where: { email } });
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+        // 2. Hash the OTP received from user
+        const hashedOtp = crypto_1.default.createHash("sha256").update(otp).digest("hex");
+        // 3. Check OTP in database
+        const tokenRecord = await prismaClient_1.default.passwordResetToken.findFirst({
+            where: {
+                userId: user.id,
+                token: hashedOtp,
+            },
+        });
+        if (!tokenRecord) {
+            res.status(400).json({ message: "Invalid OTP" });
+            return;
+        }
+        // 4. Check if OTP expired
+        if (tokenRecord.expiresAt < new Date()) {
+            // delete old OTP
+            await prismaClient_1.default.passwordResetToken.delete({ where: { id: tokenRecord.id } });
+            res.status(400).json({ message: "OTP expired" });
+            return;
+        }
+        // 5. OTP is valid — delete it to prevent reuse
+        await prismaClient_1.default.passwordResetToken.delete({
+            where: { id: tokenRecord.id },
+        });
+        // 6. Successful verification
+        res.status(200).json({
+            message: "OTP verified successfully",
+        });
+    }
+    catch (error) {
+        console.error("OTP Verification Error:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+exports.otpVerification = otpVerification;
+const savePassword = async (req, res) => {
+    const { email, newPassword } = req.body;
+    try {
+        // 1. Find the user
+        const user = await prismaClient_1.default.user.findUnique({ where: { email } });
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+        // 2. Hash the new password
+        const hashedPassword = await bcryptjs_1.default.hash(newPassword, 10);
+        // 3. Update the password in database
+        await prismaClient_1.default.user.update({
+            where: { id: user.id },
+            data: { password: hashedPassword },
+        });
+        // 4. Delete all old reset tokens for security
+        await prismaClient_1.default.passwordResetToken.deleteMany({
+            where: { userId: user.id },
+        });
+        // 5. Response
+        res.status(200).json({
+            message: "Password updated successfully",
+        });
+    }
+    catch (error) {
+        console.error("Save Password Error:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+exports.savePassword = savePassword;
 const refreshAccessToken = async (req, res) => {
     try {
         const refreshToken = req.cookies.refreshToken;

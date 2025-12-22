@@ -1,12 +1,9 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = __importDefault(require("express"));
+const express_1 = require("express");
 const futsalController_1 = require("../controllers/futsalController");
-const router = express_1.default.Router();
-router.get("/", futsalController_1.getAllVenues);
-router.get("/:id", futsalController_1.getVenueById);
-router.get("/search-venue", futsalController_1.searchVenues);
+const router = (0, express_1.Router)();
+router.get("/venue", futsalController_1.getAllVenues);
+router.get("/venue-search", futsalController_1.searchVenues);
+router.get("/venue/:id", futsalController_1.getVenueById);
 exports.default = router;

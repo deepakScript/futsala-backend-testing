@@ -104,7 +104,7 @@ export const loginUser = async (req: Request, res: Response) => {
         role: user.role,
         type: 'access'
       } as AccessTokenPayload,
-      process.env.JWT_SECRET || 'your-default-secret-key',
+      process.env.JWT_ACCESS_SECRET || 'your-default-secret-key',
       { expiresIn: '15m' } // 15 minutes
     );
 

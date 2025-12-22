@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET as string;
+const JWT_SECRET = process.env.JWT_REFRESH_SECRET as string;
+
 
 // Define the type of decoded token payload
 interface DecodedUser extends JwtPayload {

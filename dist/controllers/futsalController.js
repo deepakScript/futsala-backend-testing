@@ -100,7 +100,7 @@ const getVenueById = async (req, res) => {
                     orderBy: {
                         createdAt: 'desc'
                     },
-                    take: 10 // Get latest 10 reviews
+                    take: 2 // Get latest 10 reviews
                 }
             }
         });
@@ -180,7 +180,7 @@ const searchVenues = async (req, res) => {
                     select: {
                         id: true,
                         name: true,
-                        courtType: true,
+                        courtType: false,
                         surfaceType: true,
                         isIndoor: true,
                         pricePerHour: true
