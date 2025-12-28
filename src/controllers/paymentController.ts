@@ -2,53 +2,34 @@
 import { Request, Response } from 'express';
 import prisma from '../config/prismaClient';
 import crypto from 'crypto';
+// Import PaymentStatus from Prisma generated types
+import { PaymentStatus } from '@prisma/client';
 
 
 // Extend Express Request type to include user
 interface AuthRequest extends Request {
   user?: {
-    id: string;
+    userId: string;
     email: string;
     role: string;
   };
 }
 
-// Payment status enum (should match your Prisma schema)
-enum PaymentStatus {
-  PENDING = 'PENDING',
-  COMPLETED = 'COMPLETED',
-  FAILED = 'FAILED',
-  REFUNDED = 'REFUNDED'
-}
 
-// Payment method enum
-enum PaymentMethod {
-  ESEWA = 'ESEWA',
-  KHALTI = 'KHALTI',
-  STRIPE = 'STRIPE',
-  CASH = 'CASH'
-}
 
-// Interface for initiate payment request body
-interface InitiatePaymentBody {
+// Payment method - only Khalti supported
+const PAYMENT_METHOD = 'KHALTI';
+
+// Khalti payment interfaces
+interface InitiatePaymentRequest {
   bookingId: string;
-  paymentMethod: string;
 }
 
-// Interface for verify payment request body
-interface VerifyPaymentBody {
+interface VerifyPaymentRequest {
   paymentId: string;
   transactionId: string;
-  paymentMethod: string;
-  // eSewa specific
-  oid?: string;
-  amt?: string;
-  refId?: string;
-  // Khalti specific
-  token?: string;
-  amount?: number;
-  // Stripe specific
-  paymentIntentId?: string;
+  token: string;
+  amount: number;
 }
 
 /**
@@ -57,7 +38,7 @@ interface VerifyPaymentBody {
  */
 export const initiatePayment = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -66,13 +47,13 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
       });
     }
 
-    const { bookingId, paymentMethod } = req.body as InitiatePaymentBody;
+    const { bookingId } = req.body as { bookingId: string };
 
     // Validate required fields
-    if (!bookingId || !paymentMethod) {
+    if (!bookingId) {
       return res.status(400).json({
         success: false,
-        message: 'Booking ID and payment method are required'
+        message: 'Booking ID is required'
       });
     }
 
@@ -108,7 +89,7 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
     const existingPayment = await prisma.payment.findFirst({
       where: {
         bookingId: bookingId,
-        status: PaymentStatus.COMPLETED
+        status: PaymentStatus.PAID
       }
     });
 
@@ -127,65 +108,25 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
       data: {
         bookingId: bookingId,
         amount: booking.totalPrice,
-        paymentMethod: paymentMethod as any,
+        paymentMethod: PAYMENT_METHOD,
         transactionId: transactionId,
         status: PaymentStatus.PENDING
       }
     });
 
-    // Prepare payment gateway specific data
-    let paymentGatewayData: any = {};
-
-    switch (paymentMethod.toUpperCase()) {
-      case PaymentMethod.ESEWA:
-        paymentGatewayData = {
-          amount: booking.totalPrice,
-          tax_amount: 0,
-          total_amount: booking.totalPrice,
-          transaction_uuid: transactionId,
-          product_code: process.env.ESEWA_PRODUCT_CODE || 'EPAYTEST',
-          product_service_charge: 0,
-          product_delivery_charge: 0,
-          success_url: `${process.env.FRONTEND_URL}/payment/success`,
-          failure_url: `${process.env.FRONTEND_URL}/payment/failure`,
-          signed_field_names: 'total_amount,transaction_uuid,product_code',
-          // signature: generateEsewaSignature(...)
-        };
-        break;
-
-      case PaymentMethod.KHALTI:
-        paymentGatewayData = {
-          return_url: `${process.env.FRONTEND_URL}/payment/verify`,
-          website_url: process.env.FRONTEND_URL,
-          amount: booking.totalPrice * 100, // Khalti expects amount in paisa
-          purchase_order_id: transactionId,
-          purchase_order_name: `Booking for ${booking.court.venue.name}`,
-          customer_info: {
-            name: booking.user.fullName,
-            email: booking.user.email,
-            phone: booking.user.phoneNumber
-          }
-        };
-        break;
-
-      case PaymentMethod.STRIPE:
-        paymentGatewayData = {
-          amount: Math.round(booking.totalPrice * 100), // Stripe expects amount in cents
-          currency: 'npr',
-          description: `Booking for ${booking.court.venue.name} - ${booking.court.name}`,
-          metadata: {
-            bookingId: bookingId,
-            transactionId: transactionId
-          }
-        };
-        break;
-
-      default:
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid payment method'
-        });
-    }
+    // Prepare Khalti payment gateway data
+    const paymentGatewayData = {
+      return_url: `${process.env.FRONTEND_URL}/payment/verify`,
+      website_url: process.env.FRONTEND_URL,
+      amount: booking.totalPrice * 100, // Khalti expects amount in paisa
+      purchase_order_id: transactionId,
+      purchase_order_name: `Booking for ${booking.court.venue.name}`,
+      customer_info: {
+        name: booking.user.fullName,
+        email: booking.user.email,
+        phone: booking.user.phoneNumber
+      }
+    };
 
     return res.status(200).json({
       success: true,
@@ -194,7 +135,7 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
         paymentId: payment.id,
         transactionId: transactionId,
         amount: booking.totalPrice,
-        paymentMethod: paymentMethod,
+        paymentMethod: PAYMENT_METHOD,
         booking: {
           id: booking.id,
           venueName: booking.court.venue.name,
@@ -221,7 +162,7 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
  */
 export const verifyPayment = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -232,24 +173,17 @@ export const verifyPayment = async (req: AuthRequest, res: Response): Promise<Re
 
     const { 
       paymentId, 
-      transactionId, 
-      paymentMethod,
-      // eSewa params
-      oid, 
-      amt, 
-      refId,
+      transactionId,
       // Khalti params
       token,
-      amount,
-      // Stripe params
-      paymentIntentId
-    } = req.body as VerifyPaymentBody;
+      amount
+    } = req.body as { paymentId: string; transactionId: string; token: string; amount: number };
 
     // Validate required fields
-    if (!paymentId || !transactionId || !paymentMethod) {
+    if (!paymentId || !transactionId || !token || !amount) {
       return res.status(400).json({
         success: false,
-        message: 'Payment ID, transaction ID, and payment method are required'
+        message: 'Payment ID, transaction ID, token, and amount are required'
       });
     }
 
@@ -285,54 +219,29 @@ export const verifyPayment = async (req: AuthRequest, res: Response): Promise<Re
     }
 
     // Check if payment is already verified
-    if (payment.status === PaymentStatus.COMPLETED) {
+    if (payment.status === PaymentStatus.PAID) {
       return res.status(400).json({
         success: false,
         message: 'Payment already verified'
       });
     }
 
+    // Verify Khalti payment
+    // In production, make API call to Khalti verification endpoint
+    // Example: POST https://khalti.com/api/v2/payment/verify/
+    // Headers: { Authorization: `Key ${process.env.KHALTI_SECRET_KEY}` }
+    // Body: { token, amount }
+    
     let verificationSuccess = false;
     let verificationMessage = '';
-
-    // Verify payment based on payment method
-    switch (paymentMethod.toUpperCase()) {
-      case PaymentMethod.ESEWA:
-        // Verify eSewa payment
-        // In production, make API call to eSewa verification endpoint
-        if (oid && amt && refId) {
-          // verificationSuccess = await verifyEsewaPayment(oid, amt, refId);
-          verificationSuccess = true; // Mock verification
-          verificationMessage = 'eSewa payment verified';
-        }
-        break;
-
-      case PaymentMethod.KHALTI:
-        // Verify Khalti payment
-        // In production, make API call to Khalti verification endpoint
-        if (token && amount) {
-          // verificationSuccess = await verifyKhaltiPayment(token, amount);
-          verificationSuccess = true; // Mock verification
-          verificationMessage = 'Khalti payment verified';
-        }
-        break;
-
-      case PaymentMethod.STRIPE:
-        // Verify Stripe payment
-        // In production, use Stripe SDK to verify payment intent
-        if (paymentIntentId) {
-          // verificationSuccess = await verifyStripePayment(paymentIntentId);
-          verificationSuccess = true; // Mock verification
-          verificationMessage = 'Stripe payment verified';
-        }
-        break;
-
-      default:
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid payment method'
-        });
-    }
+    
+    // TODO: Implement actual Khalti verification
+    // const khaltiResponse = await verifyKhaltiPayment(token, amount);
+    // verificationSuccess = khaltiResponse.success;
+    
+    // Mock verification for now
+    verificationSuccess = true;
+    verificationMessage = 'Khalti payment verified successfully';
 
     if (!verificationSuccess) {
       // Update payment status to failed
@@ -355,7 +264,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response): Promise<Re
       const payment = await tx.payment.update({
         where: { id: paymentId },
         data: {
-          status: PaymentStatus.COMPLETED,
+          status: PaymentStatus.PAID,
           paidAt: new Date()
         }
       });
@@ -364,7 +273,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response): Promise<Re
       await tx.booking.update({
         where: { id: payment.bookingId },
         data: {
-          paymentStatus: PaymentStatus.COMPLETED,
+          paymentStatus: PaymentStatus.PAID,
           status: 'CONFIRMED' as any
         }
       });
@@ -403,7 +312,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response): Promise<Re
  */
 export const getPaymentHistory = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -443,10 +352,10 @@ export const getPaymentHistory = async (req: AuthRequest, res: Response): Promis
 
     // Calculate statistics
     const totalAmount = payments
-      .filter(p => p.status === PaymentStatus.COMPLETED)
+      .filter(p => p.status === PaymentStatus.PAID)
       .reduce((sum, p) => sum + p.amount, 0);
 
-    const completedCount = payments.filter(p => p.status === PaymentStatus.COMPLETED).length;
+    const completedCount = payments.filter(p => p.status === PaymentStatus.PAID).length;
     const pendingCount = payments.filter(p => p.status === PaymentStatus.PENDING).length;
     const failedCount = payments.filter(p => p.status === PaymentStatus.FAILED).length;
 

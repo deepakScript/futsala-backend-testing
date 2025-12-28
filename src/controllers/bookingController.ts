@@ -308,7 +308,8 @@ export const createBooking = async (req: Request, res: Response): Promise<Respon
  */
 export const getMyBookings = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.userId;
+    // const userId = req.user?.userId;
+      const userId = "80603105-16b4-4ee6-a8a8-80e31fc420ac"
 
     if (!userId) {
       return res.status(401).json({
@@ -361,7 +362,8 @@ export const getMyBookings = async (req: Request, res: Response): Promise<Respon
  */
 export const getBookingById = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.userId;
+    // const userId = req.user?.userId;
+    const userId = "80603105-16b4-4ee6-a8a8-80e31fc420ac"
     const { id } = req.params;
 
     if (!userId) {
@@ -425,7 +427,9 @@ export const getBookingById = async (req: Request, res: Response): Promise<Respo
  */
 export const cancelBooking = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.userId;
+    // const userId = req.user?.userId;
+    const userId = "80603105-16b4-4ee6-a8a8-80e31fc420ac"
+
     const { id } = req.params;
 
     if (!userId) {
