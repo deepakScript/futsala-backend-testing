@@ -39,7 +39,7 @@ app.get("/test-db", async (req, res) => {
 // test route
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/futsal", futsalRoutes);
-app.use("/api/v1/booking",bookingRoutes);
+app.use("/api/v1/bookings",bookingRoutes);
 
 
 
