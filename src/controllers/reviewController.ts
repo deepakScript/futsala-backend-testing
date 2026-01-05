@@ -4,8 +4,8 @@ import prisma from '../config/prismaClient';
 // Extend Express Request type to include user
 interface AuthRequest extends Request {
   user?: {
-    id: string;
-    email: string;
+    userId: string;
+    email?: string;
     role: string;
   };
 }
@@ -22,7 +22,7 @@ interface CreateReviewBody {
  */
 export const createReview = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     const { futsalId } = req.params;
 
     if (!userId) {
@@ -69,7 +69,7 @@ export const createReview = async (req: AuthRequest, res: Response): Promise<Res
         court: {
           venueId: futsalId
         },
-        status: 'COMPLETED' as any
+        status: 'COMPLETED' as any // Should ideally use BookingStatus.COMPLETED
       }
     });
 
@@ -274,7 +274,7 @@ export const getVenueReviews = async (req: Request, res: Response): Promise<Resp
  */
 export const deleteReview = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     const { reviewId } = req.params;
 
     if (!userId) {

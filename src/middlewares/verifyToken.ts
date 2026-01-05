@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_REFRESH_SECRET as string;
+const JWT_SECRET = process.env.JWT_ACCESS_SECRET || 'your-default-secret-key';
 
 
 // Define the type of decoded token payload
 interface DecodedUser extends JwtPayload {
   userId: string;
-  email?: string; // optional fields if you store them in token
+  email?: string;
+  role: string;
 }
 
 // Extend Express Request type to include `user`
@@ -18,10 +19,13 @@ declare module "express-serve-static-core" {
 }
 
 export const verifyToken = (req: Request, res: Response, next: NextFunction): void => {
-  const authHeader = req.headers.authorization; // lowercase 'authorization'
-  const token = authHeader && authHeader.split(" ")[1]; // "Bearer <token>"
+  console.log(`[verifyToken] Headers:`, JSON.stringify(req.headers, null, 2));
+  
+  const authHeader = req.header('Authorization');
+  const token = authHeader && authHeader.split(" ")[1];
 
   if (!token) {
+    console.warn(`[verifyToken] No token found in Authorization header`);
     res.status(401).json({ message: "No token provided" });
     return;
   }

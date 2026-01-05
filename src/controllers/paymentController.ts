@@ -10,7 +10,7 @@ import { PaymentStatus } from '@prisma/client';
 interface AuthRequest extends Request {
   user?: {
     userId: string;
-    email: string;
+    email?: string;
     role: string;
   };
 }
@@ -274,7 +274,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response): Promise<Re
         where: { id: payment.bookingId },
         data: {
           paymentStatus: PaymentStatus.PAID,
-          status: 'CONFIRMED' as any
+          status: 'CONFIRMED' as any // Use as any if enum import is tricky, but preferably use BookingStatus
         }
       });
 

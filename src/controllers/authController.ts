@@ -105,7 +105,7 @@ export const loginUser = async (req: Request, res: Response) => {
         type: 'access'
       } as AccessTokenPayload,
       process.env.JWT_ACCESS_SECRET || 'your-default-secret-key',
-      { expiresIn: '15m' } // 15 minutes
+      { expiresIn: '1d' } // 15 minutes
     );
 
     // Generate refresh token (long-lived)
@@ -136,7 +136,7 @@ export const loginUser = async (req: Request, res: Response) => {
       user: userWithoutPassword,
       auth: {
         accessToken,
-        expiresIn: 900 // 15 minutes in seconds
+        expiresIn: 9000 // 15 minutes in seconds
       }
     });
   } catch (error) {

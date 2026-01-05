@@ -6,8 +6,8 @@ import prisma from '../config/prismaClient';
 // Extend Express Request type to include user
 interface AuthRequest extends Request {
   user?: {
-    id: string;
-    email: string;
+    userId: string;
+    email?: string;
     role: string;
   };
 }
@@ -18,7 +18,7 @@ interface AuthRequest extends Request {
  */
 export const getAllNotifications = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -58,7 +58,7 @@ export const getAllNotifications = async (req: AuthRequest, res: Response): Prom
  */
 export const markAsRead = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     const { id } = req.params;
 
     if (!userId) {

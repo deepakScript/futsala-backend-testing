@@ -32,8 +32,15 @@ interface RescheduleBookingBody {
  */
 export const checkAvailability = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { futsalId } = req.params;
+    const futsalId = req.params.futsalId || req.query.futsalId as string;
     const { date } = req.query as { date?: string };
+    
+    if (!futsalId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Futsal ID is required (either as path parameter or query parameter)'
+      });
+    }
 
     if (!date) {
       return res.status(400).json({
@@ -42,25 +49,27 @@ export const checkAvailability = async (req: Request, res: Response): Promise<Re
       });
     }
 
-    // Parse the date and get day of week
-    // Ensure we are working with the start of the day
-    const bookingDate = new Date(date);
-    // basic validation
+    // Parse the date robustly
+    // Use a simple split and Date.UTC to avoid timezone-related day shifts
+    const [year, month, day] = date.split('-').map(Number);
+    const bookingDate = new Date(Date.UTC(year, month - 1, day));
+    
     if (isNaN(bookingDate.getTime())) {
         return res.status(400).json({
             success: false,
-            message: 'Invalid date format'
+            message: 'Invalid date format. Use YYYY-MM-DD'
         });
     }
     
-    const dayOfWeek = bookingDate.getDay(); // 0-6 (Sunday-Saturday)
+    // Day of week from UTC to match our simple date string
+    const dayOfWeek = bookingDate.getUTCDay(); // 0-6 (Sunday-Saturday)
     
+    console.log(`[checkAvailability] Checking for date: ${date}, dayOfWeek: ${dayOfWeek}`);
+
     // Create start and end of day dates for the query
     const startOfDay = new Date(bookingDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    
-    const endOfDay = new Date(startOfDay);
-    endOfDay.setDate(endOfDay.getDate() + 1);
+    const endOfDay = new Date(bookingDate);
+    endOfDay.setUTCDate(endOfDay.getUTCDate() + 1);
 
     // Get all courts for this venue
     const courts = await prisma.court.findMany({
@@ -92,38 +101,45 @@ export const checkAvailability = async (req: Request, res: Response): Promise<Re
       }
     });
 
-    // Process availability for each court
-    const availability = courts.map(court => {
+    console.log(`[checkAvailability] Found ${courts.length} courts for venue ${futsalId}`);
+    courts.forEach(c => {
+      console.log(`  Court: ${c.name}, Slots: ${c.timeSlots.length}, Bookings: ${c.bookings.length}`);
+    });
+
+    // Process availability for each court into a flattened list of slots
+    const flattenedAvailability: any[] = [];
+    
+    courts.forEach(court => {
       const bookedSlots = court.bookings.map(b => ({
         startTime: b.startTime,
         endTime: b.endTime
       }));
 
-      const availableSlots = court.timeSlots.filter(slot => {
+      court.timeSlots.forEach(slot => {
         // Check if slot overlaps with any booking
         const isBooked = bookedSlots.some(booked => {
           return !(slot.endTime <= booked.startTime || slot.startTime >= booked.endTime);
         });
-        return !isBooked;
-      });
 
-      return {
-        courtId: court.id,
-        courtName: court.name,
-        courtType: court.courtType,
-        pricePerHour: court.pricePerHour,
-        availableSlots: availableSlots.map(slot => ({
-          startTime: slot.startTime,
-          endTime: slot.endTime
-        }))
-      };
+        if (!isBooked) {
+          flattenedAvailability.push({
+            courtId: court.id,
+            courtName: court.name,
+            courtType: court.courtType,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            price: court.pricePerHour, // Match frontend expected field 'price'
+            isAvailable: true
+          });
+        }
+      });
     });
 
     return res.status(200).json({
       success: true,
       date: date,
       dayOfWeek: dayOfWeek,
-      data: availability
+      data: flattenedAvailability
     });
   } catch (error) {
     return res.status(500).json({
@@ -140,8 +156,7 @@ export const checkAvailability = async (req: Request, res: Response): Promise<Re
  */
 export const createBooking = async (req: Request, res: Response): Promise<Response> => {
   try {
-    // const userId = req.user?.userId;
-    const userId = "80603105-16b4-4ee6-a8a8-80e31fc420ac"
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -308,8 +323,7 @@ export const createBooking = async (req: Request, res: Response): Promise<Respon
  */
 export const getMyBookings = async (req: Request, res: Response): Promise<Response> => {
   try {
-    // const userId = req.user?.userId;
-      const userId = "80603105-16b4-4ee6-a8a8-80e31fc420ac"
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -362,8 +376,7 @@ export const getMyBookings = async (req: Request, res: Response): Promise<Respon
  */
 export const getBookingById = async (req: Request, res: Response): Promise<Response> => {
   try {
-    // const userId = req.user?.userId;
-    const userId = "80603105-16b4-4ee6-a8a8-80e31fc420ac"
+    const userId = req.user?.userId;
     const { id } = req.params;
 
     if (!userId) {
@@ -427,8 +440,7 @@ export const getBookingById = async (req: Request, res: Response): Promise<Respo
  */
 export const cancelBooking = async (req: Request, res: Response): Promise<Response> => {
   try {
-    // const userId = req.user?.userId;
-    const userId = "80603105-16b4-4ee6-a8a8-80e31fc420ac"
+    const userId = req.user?.userId;
 
     const { id } = req.params;
 

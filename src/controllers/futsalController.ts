@@ -197,7 +197,7 @@ export const searchVenues = async (req: Request, res: Response): Promise<Respons
           select: {
             id: true,
             name: true,
-            courtType: false,
+            courtType: true,
             surfaceType: true,
             isIndoor: true,
             pricePerHour: true

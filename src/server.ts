@@ -7,6 +7,10 @@ import morgan from "morgan";
 import authRoutes from "./routes/authRoutes";
 import futsalRoutes from "./routes/futsalRoutes";
 import bookingRoutes from "./routes/bookingRoutes";
+import userRoutes from "./routes/userRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
+import paymentRoutes from "./routes/paymentRoutes";
+import reviewRoutes from "./routes/reviewRoutes";
 
 dotenv.config();
 
@@ -39,7 +43,12 @@ app.get("/test-db", async (req, res) => {
 // test route
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/futsal", futsalRoutes);
-app.use("/api/v1/bookings",bookingRoutes);
+app.use("/api/v1/booking", bookingRoutes);
+app.use("/api/v1/bookings", bookingRoutes);
+app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/notifications", notificationRoutes);
+app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/v1/reviews", reviewRoutes);
 
 
 
