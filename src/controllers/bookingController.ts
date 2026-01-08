@@ -121,17 +121,15 @@ export const checkAvailability = async (req: Request, res: Response): Promise<Re
           return !(slot.endTime <= booked.startTime || slot.startTime >= booked.endTime);
         });
 
-        if (!isBooked) {
-          flattenedAvailability.push({
-            courtId: court.id,
-            courtName: court.name,
-            courtType: court.courtType,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-            price: court.pricePerHour, // Match frontend expected field 'price'
-            isAvailable: true
-          });
-        }
+        flattenedAvailability.push({
+          courtId: court.id,
+          courtName: court.name,
+          courtType: court.courtType,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          price: court.pricePerHour, // Match frontend expected field 'price'
+          isAvailable: !isBooked
+        });
       });
     });
 
