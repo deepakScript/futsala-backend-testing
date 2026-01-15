@@ -163,12 +163,13 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
     const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
 
     const expiresAt = new Date(Date.now() + 1000 * 60 * 10); // 10 minutes expiry
-    console.log("rest token taken");
+    console.log("Reset token generated for user:", user.email);
     
     // Delete old OTPs for this user (optional but recommended)
     await prisma.passwordResetToken.deleteMany({
       where: { userId: user.id }
     });
+    
 
     // Save new OTP
     await prisma.passwordResetToken.create({
@@ -179,6 +180,8 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
       },
     });
 
+    console.log("OTP saved to database, attempting to send email...");
+
     // Email OTP
     const html = `
       <p>Your password reset OTP is:</p>
@@ -186,11 +189,37 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
       <p>This OTP will expire in 10 minutes.</p>
     `;
 
-    await sendMail({
-      to: user.email,
-      subject: "Password Reset OTP",
-      html,
-    });
+    try {
+      // Validate email configuration before sending
+      if (!process.env.MAIL_HOST || !process.env.MAIL_USER || !process.env.MAIL_PASSWORD) {
+        console.error("❌ Email configuration missing! Check .env file for:");
+        console.error("   - MAIL_HOST:", process.env.MAIL_HOST ? "✓" : "✗");
+        console.error("   - MAIL_PORT:", process.env.MAIL_PORT ? "✓" : "✗");
+        console.error("   - MAIL_USER:", process.env.MAIL_USER ? "✓" : "✗");
+        console.error("   - MAIL_PASSWORD:", process.env.MAIL_PASSWORD ? "✓" : "✗");
+        res.status(500).json({ message: "Email service not configured. Please contact administrator." });
+        return;
+      }
+
+      await sendMail({
+        to: user.email,
+        subject: "Password Reset OTP",
+        html,
+      });
+      console.log("✅ OTP sent successfully to:", user.email);
+    } catch (mailError) {
+      console.error("❌ Email sending failed:");
+      console.error("Error details:", mailError);
+      if (mailError instanceof Error) {
+        console.error("Error message:", mailError.message);
+        console.error("Error stack:", mailError.stack);
+      }
+      res.status(500).json({ 
+        message: "Failed to send OTP to email",
+        error: process.env.NODE_ENV === 'development' ? (mailError as Error).message : undefined
+      });
+      return;
+    }
 
     res.status(200).json({
       message: "OTP sent to email",

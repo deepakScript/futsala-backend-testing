@@ -11,7 +11,7 @@ const sendMail = async ({ to, subject, html }) => {
         secure: false, // Use true for port 465, false for others (e.g., 587)
         auth: {
             user: process.env.MAIL_USER,
-            pass: process.env.MAIL_PASSWORD,
+            pass: process.env.MAIL_PASSWORD?.replace(/\s+/g, ''), // Remove any spaces from App Password
         },
         tls: {
             rejectUnauthorized: false, // only for development / Mailtrap

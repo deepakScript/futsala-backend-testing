@@ -11,7 +11,7 @@ const prismaClient_1 = __importDefault(require("../config/prismaClient"));
  */
 const getAllNotifications = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         if (!userId) {
             return res.status(401).json({
                 success: false,
@@ -48,7 +48,7 @@ exports.getAllNotifications = getAllNotifications;
  */
 const markAsRead = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         const { id } = req.params;
         if (!userId) {
             return res.status(401).json({

@@ -43,7 +43,6 @@ app.get("/test-db", async (req, res) => {
 // test route
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/futsal", futsalRoutes);
-app.use("/api/v1/booking", bookingRoutes);
 app.use("/api/v1/bookings", bookingRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
@@ -56,5 +55,29 @@ app.get("/", (_req: Request, res: Response) => {
   res.send("Futsal Booking Backend (TypeScript) is running 🚀");
 });
 
+// Error handling middleware
+app.use((err: any, req: Request, res: Response, next: any) => {
+  console.error("Express Error:", err);
+  res.status(err.status || 500).json({
+    error: err.message || "Internal Server Error",
+    details: process.env.NODE_ENV === "development" ? err : undefined
+  });
+});
+
 const PORT = process.env.PORT ?? 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+if (process.env.NODE_ENV !== "production") {
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+// Global unhandled promise rejection handler
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+// Global uncaught exception handler
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
+export default app;

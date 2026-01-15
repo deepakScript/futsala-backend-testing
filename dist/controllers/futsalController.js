@@ -180,7 +180,7 @@ const searchVenues = async (req, res) => {
                     select: {
                         id: true,
                         name: true,
-                        courtType: false,
+                        courtType: true,
                         surfaceType: true,
                         isIndoor: true,
                         pricePerHour: true

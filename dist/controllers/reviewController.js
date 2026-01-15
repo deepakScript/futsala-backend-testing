@@ -11,7 +11,7 @@ const prismaClient_1 = __importDefault(require("../config/prismaClient"));
  */
 const createReview = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         const { futsalId } = req.params;
         if (!userId) {
             return res.status(401).json({
@@ -51,7 +51,7 @@ const createReview = async (req, res) => {
                 court: {
                     venueId: futsalId
                 },
-                status: 'COMPLETED'
+                status: 'COMPLETED' // Should ideally use BookingStatus.COMPLETED
             }
         });
         if (!hasBooking) {
@@ -238,7 +238,7 @@ exports.getVenueReviews = getVenueReviews;
  */
 const deleteReview = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         const { reviewId } = req.params;
         if (!userId) {
             return res.status(401).json({

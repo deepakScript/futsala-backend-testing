@@ -4,33 +4,45 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rescheduleBooking = exports.cancelBooking = exports.getBookingById = exports.getMyBookings = exports.createBooking = exports.checkAvailability = void 0;
+const client_1 = require("@prisma/client");
 const prismaClient_1 = __importDefault(require("../config/prismaClient"));
-// BookingStatus enum (should match your Prisma schema)
-var BookingStatus;
-(function (BookingStatus) {
-    BookingStatus["PENDING"] = "PENDING";
-    BookingStatus["CONFIRMED"] = "CONFIRMED";
-    BookingStatus["COMPLETED"] = "COMPLETED";
-    BookingStatus["CANCELLED"] = "CANCELLED";
-    BookingStatus["REJECTED"] = "REJECTED";
-})(BookingStatus || (BookingStatus = {}));
 /**
  * Check available time slots for a futsal
  * @route GET /availability/:futsalId?date=
  */
 const checkAvailability = async (req, res) => {
     try {
-        const { futsalId } = req.params;
+        const futsalId = req.params.futsalId || req.query.futsalId;
         const { date } = req.query;
+        if (!futsalId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Futsal ID is required (either as path parameter or query parameter)'
+            });
+        }
         if (!date) {
             return res.status(400).json({
                 success: false,
                 message: 'Date parameter is required'
             });
         }
-        // Parse the date and get day of week
-        const bookingDate = new Date(date);
-        const dayOfWeek = bookingDate.getDay(); // 0-6 (Sunday-Saturday)
+        // Parse the date robustly
+        // Use a simple split and Date.UTC to avoid timezone-related day shifts
+        const [year, month, day] = date.split('-').map(Number);
+        const bookingDate = new Date(Date.UTC(year, month - 1, day));
+        if (isNaN(bookingDate.getTime())) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid date format. Use YYYY-MM-DD'
+            });
+        }
+        // Day of week from UTC to match our simple date string
+        const dayOfWeek = bookingDate.getUTCDay(); // 0-6 (Sunday-Saturday)
+        console.log(`[checkAvailability] Checking for date: ${date}, dayOfWeek: ${dayOfWeek}`);
+        // Create start and end of day dates for the query
+        const startOfDay = new Date(bookingDate);
+        const endOfDay = new Date(bookingDate);
+        endOfDay.setUTCDate(endOfDay.getUTCDate() + 1);
         // Get all courts for this venue
         const courts = await prismaClient_1.default.court.findMany({
             where: {
@@ -50,45 +62,48 @@ const checkAvailability = async (req, res) => {
                 bookings: {
                     where: {
                         bookingDate: {
-                            gte: new Date(date),
-                            lt: new Date(new Date(date).setDate(new Date(date).getDate() + 1))
+                            gte: startOfDay,
+                            lt: endOfDay
                         },
                         status: {
-                            notIn: [BookingStatus.CANCELLED, BookingStatus.REJECTED]
+                            notIn: [client_1.BookingStatus.CANCELLED]
                         }
                     }
                 }
             }
         });
-        // Process availability for each court
-        const availability = courts.map(court => {
+        console.log(`[checkAvailability] Found ${courts.length} courts for venue ${futsalId}`);
+        courts.forEach(c => {
+            console.log(`  Court: ${c.name}, Slots: ${c.timeSlots.length}, Bookings: ${c.bookings.length}`);
+        });
+        // Process availability for each court into a flattened list of slots
+        const flattenedAvailability = [];
+        courts.forEach(court => {
             const bookedSlots = court.bookings.map(b => ({
                 startTime: b.startTime,
                 endTime: b.endTime
             }));
-            const availableSlots = court.timeSlots.filter(slot => {
+            court.timeSlots.forEach(slot => {
                 // Check if slot overlaps with any booking
                 const isBooked = bookedSlots.some(booked => {
                     return !(slot.endTime <= booked.startTime || slot.startTime >= booked.endTime);
                 });
-                return !isBooked;
-            });
-            return {
-                courtId: court.id,
-                courtName: court.name,
-                courtType: court.courtType,
-                pricePerHour: court.pricePerHour,
-                availableSlots: availableSlots.map(slot => ({
+                flattenedAvailability.push({
+                    courtId: court.id,
+                    courtName: court.name,
+                    courtType: court.courtType,
                     startTime: slot.startTime,
-                    endTime: slot.endTime
-                }))
-            };
+                    endTime: slot.endTime,
+                    price: court.pricePerHour, // Match frontend expected field 'price'
+                    isAvailable: !isBooked
+                });
+            });
         });
         return res.status(200).json({
             success: true,
             date: date,
             dayOfWeek: dayOfWeek,
-            data: availability
+            data: flattenedAvailability
         });
     }
     catch (error) {
@@ -106,7 +121,7 @@ exports.checkAvailability = checkAvailability;
  */
 const createBooking = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         if (!userId) {
             return res.status(401).json({
                 success: false,
@@ -121,84 +136,92 @@ const createBooking = async (req, res) => {
                 message: 'All fields are required: courtId, bookingDate, startTime, endTime'
             });
         }
-        // Get court details
-        const court = await prismaClient_1.default.court.findUnique({
-            where: { id: courtId },
-            include: { venue: true }
-        });
-        if (!court || !court.isActive) {
-            return res.status(404).json({
-                success: false,
-                message: 'Court not found or inactive'
-            });
-        }
-        // Calculate total hours and price
-        const start = parseTime(startTime);
-        const end = parseTime(endTime);
-        const totalHours = (end - start) / 60; // Convert minutes to hours
-        if (totalHours <= 0) {
+        const bookingDateObj = new Date(bookingDate);
+        if (isNaN(bookingDateObj.getTime())) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid time range'
+                message: 'Invalid date format'
             });
         }
-        const totalPrice = totalHours * court.pricePerHour;
-        // Check if slot is already booked
-        const existingBooking = await prismaClient_1.default.booking.findFirst({
-            where: {
-                courtId: courtId,
-                bookingDate: new Date(bookingDate),
-                status: {
-                    notIn: [BookingStatus.CANCELLED, BookingStatus.REJECTED]
-                },
-                OR: [
-                    {
-                        AND: [
-                            { startTime: { lte: startTime } },
-                            { endTime: { gt: startTime } }
-                        ]
-                    },
-                    {
-                        AND: [
-                            { startTime: { lt: endTime } },
-                            { endTime: { gte: endTime } }
-                        ]
-                    },
-                    {
-                        AND: [
-                            { startTime: { gte: startTime } },
-                            { endTime: { lte: endTime } }
-                        ]
-                    }
-                ]
+        // Use a transaction to prevent race conditions
+        const booking = await prismaClient_1.default.$transaction(async (tx) => {
+            // Validate user exists
+            const user = await tx.user.findUnique({
+                where: { id: userId }
+            });
+            if (!user) {
+                throw new Error('User not found. Please ensure you are using a valid user ID.');
             }
-        });
-        if (existingBooking) {
-            return res.status(409).json({
-                success: false,
-                message: 'Time slot is already booked'
+            // Get court details
+            const court = await tx.court.findUnique({
+                where: { id: courtId },
+                include: { venue: true }
             });
-        }
-        // Create booking
-        const booking = await prismaClient_1.default.booking.create({
-            data: {
-                userId,
-                courtId,
-                bookingDate: new Date(bookingDate),
-                startTime,
-                endTime,
-                totalHours,
-                totalPrice,
-                notes,
-                status: BookingStatus.PENDING
-            },
-            include: {
-                court: {
-                    include: {
-                        venue: true
+            if (!court || !court.isActive) {
+                throw new Error('Court not found or inactive');
+            }
+            // Calculate total hours and price
+            const start = parseTime(startTime);
+            const end = parseTime(endTime);
+            const totalHours = (end - start) / 60; // Convert minutes to hours
+            if (totalHours <= 0) {
+                throw new Error('Invalid time range');
+            }
+            const totalPrice = totalHours * court.pricePerHour;
+            // Check if slot is already booked (LOCKING/CHECKING within transaction)
+            const existingBooking = await tx.booking.findFirst({
+                where: {
+                    courtId: courtId,
+                    bookingDate: bookingDateObj,
+                    status: {
+                        notIn: [client_1.BookingStatus.CANCELLED]
+                    },
+                    OR: [
+                        {
+                            AND: [
+                                { startTime: { lte: startTime } },
+                                { endTime: { gt: startTime } }
+                            ]
+                        },
+                        {
+                            AND: [
+                                { startTime: { lt: endTime } },
+                                { endTime: { gte: endTime } }
+                            ]
+                        },
+                        {
+                            AND: [
+                                { startTime: { gte: startTime } },
+                                { endTime: { lte: endTime } }
+                            ]
+                        }
+                    ]
+                }
+            });
+            if (existingBooking) {
+                throw new Error('Time slot is already booked');
+            }
+            // Create booking
+            return await tx.booking.create({
+                data: {
+                    userId,
+                    courtId,
+                    bookingDate: bookingDateObj,
+                    startTime,
+                    endTime,
+                    totalHours,
+                    totalPrice,
+                    notes,
+                    status: client_1.BookingStatus.PENDING
+                },
+                include: {
+                    court: {
+                        include: {
+                            venue: true
+                        }
                     }
                 }
-            }
+            });
         });
         return res.status(201).json({
             success: true,
@@ -207,10 +230,36 @@ const createBooking = async (req, res) => {
         });
     }
     catch (error) {
+        console.error('Create Booking Error:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        // Handle specific errors from the transaction
+        if (errorMessage.includes('User not found')) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found. Please ensure you are logged in with a valid account.'
+            });
+        }
+        if (errorMessage === 'Court not found or inactive') {
+            return res.status(404).json({ success: false, message: errorMessage });
+        }
+        if (errorMessage === 'Invalid time range') {
+            return res.status(400).json({ success: false, message: errorMessage });
+        }
+        if (errorMessage === 'Time slot is already booked') {
+            return res.status(409).json({ success: false, message: errorMessage });
+        }
+        // Handle Prisma foreign key constraint errors
+        if (errorMessage.includes('Foreign key constraint')) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid reference: User or Court does not exist in the database.',
+                error: errorMessage
+            });
+        }
         return res.status(500).json({
             success: false,
             message: 'Failed to create booking',
-            error: error instanceof Error ? error.message : 'Unknown error'
+            error: errorMessage
         });
     }
 };
@@ -221,7 +270,7 @@ exports.createBooking = createBooking;
  */
 const getMyBookings = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         if (!userId) {
             return res.status(401).json({
                 success: false,
@@ -272,7 +321,7 @@ exports.getMyBookings = getMyBookings;
  */
 const getBookingById = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         const { id } = req.params;
         if (!userId) {
             return res.status(401).json({
@@ -332,7 +381,7 @@ exports.getBookingById = getBookingById;
  */
 const cancelBooking = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         const { id } = req.params;
         if (!userId) {
             return res.status(401).json({
@@ -357,13 +406,13 @@ const cancelBooking = async (req, res) => {
             });
         }
         // Check if booking can be cancelled
-        if (booking.status === BookingStatus.CANCELLED) {
+        if (booking.status === client_1.BookingStatus.CANCELLED) {
             return res.status(400).json({
                 success: false,
                 message: 'Booking is already cancelled'
             });
         }
-        if (booking.status === BookingStatus.COMPLETED) {
+        if (booking.status === client_1.BookingStatus.COMPLETED) {
             return res.status(400).json({
                 success: false,
                 message: 'Cannot cancel completed booking'
@@ -373,7 +422,7 @@ const cancelBooking = async (req, res) => {
         const updatedBooking = await prismaClient_1.default.booking.update({
             where: { id },
             data: {
-                status: BookingStatus.CANCELLED
+                status: client_1.BookingStatus.CANCELLED
             },
             include: {
                 court: {
@@ -404,7 +453,7 @@ exports.cancelBooking = cancelBooking;
  */
 const rescheduleBooking = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         const { id } = req.params;
         const { bookingDate, startTime, endTime } = req.body;
         if (!userId) {
@@ -433,7 +482,7 @@ const rescheduleBooking = async (req, res) => {
             });
         }
         // Check if booking can be rescheduled
-        if (booking.status === BookingStatus.CANCELLED || booking.status === BookingStatus.COMPLETED) {
+        if (booking.status === client_1.BookingStatus.CANCELLED || booking.status === client_1.BookingStatus.COMPLETED) {
             return res.status(400).json({
                 success: false,
                 message: 'Cannot reschedule cancelled or completed booking'
@@ -479,7 +528,7 @@ const rescheduleBooking = async (req, res) => {
                 courtId: booking.courtId,
                 bookingDate: newBookingDate,
                 status: {
-                    notIn: [BookingStatus.CANCELLED, BookingStatus.REJECTED]
+                    notIn: [client_1.BookingStatus.CANCELLED]
                 },
                 OR: [
                     {

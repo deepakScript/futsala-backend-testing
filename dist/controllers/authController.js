@@ -79,7 +79,7 @@ const loginUser = async (req, res) => {
             email: user.email,
             role: user.role,
             type: 'access'
-        }, process.env.JWT_SECRET || 'your-default-secret-key', { expiresIn: '15m' } // 15 minutes
+        }, process.env.JWT_ACCESS_SECRET || 'your-default-secret-key', { expiresIn: '1d' } // 15 minutes
         );
         // Generate refresh token (long-lived)
         const refreshToken = jsonwebtoken_1.default.sign({
@@ -103,7 +103,7 @@ const loginUser = async (req, res) => {
             user: userWithoutPassword,
             auth: {
                 accessToken,
-                expiresIn: 900 // 15 minutes in seconds
+                expiresIn: 9000 // 15 minutes in seconds
             }
         });
     }
@@ -126,7 +126,7 @@ const forgotPassword = async (req, res) => {
         // Hash OTP before storing
         const hashedOtp = crypto_1.default.createHash("sha256").update(otp).digest("hex");
         const expiresAt = new Date(Date.now() + 1000 * 60 * 10); // 10 minutes expiry
-        console.log("rest token taken");
+        console.log("Reset token generated for user:", user.email);
         // Delete old OTPs for this user (optional but recommended)
         await prismaClient_1.default.passwordResetToken.deleteMany({
             where: { userId: user.id }
@@ -139,17 +139,44 @@ const forgotPassword = async (req, res) => {
                 expiresAt,
             },
         });
+        console.log("OTP saved to database, attempting to send email...");
         // Email OTP
         const html = `
       <p>Your password reset OTP is:</p>
       <h2>${otp}</h2>
       <p>This OTP will expire in 10 minutes.</p>
     `;
-        await (0, sendMail_1.default)({
-            to: user.email,
-            subject: "Password Reset OTP",
-            html,
-        });
+        try {
+            // Validate email configuration before sending
+            if (!process.env.MAIL_HOST || !process.env.MAIL_USER || !process.env.MAIL_PASSWORD) {
+                console.error("❌ Email configuration missing! Check .env file for:");
+                console.error("   - MAIL_HOST:", process.env.MAIL_HOST ? "✓" : "✗");
+                console.error("   - MAIL_PORT:", process.env.MAIL_PORT ? "✓" : "✗");
+                console.error("   - MAIL_USER:", process.env.MAIL_USER ? "✓" : "✗");
+                console.error("   - MAIL_PASSWORD:", process.env.MAIL_PASSWORD ? "✓" : "✗");
+                res.status(500).json({ message: "Email service not configured. Please contact administrator." });
+                return;
+            }
+            await (0, sendMail_1.default)({
+                to: user.email,
+                subject: "Password Reset OTP",
+                html,
+            });
+            console.log("✅ OTP sent successfully to:", user.email);
+        }
+        catch (mailError) {
+            console.error("❌ Email sending failed:");
+            console.error("Error details:", mailError);
+            if (mailError instanceof Error) {
+                console.error("Error message:", mailError.message);
+                console.error("Error stack:", mailError.stack);
+            }
+            res.status(500).json({
+                message: "Failed to send OTP to email",
+                error: process.env.NODE_ENV === 'development' ? mailError.message : undefined
+            });
+            return;
+        }
         res.status(200).json({
             message: "OTP sent to email",
         });

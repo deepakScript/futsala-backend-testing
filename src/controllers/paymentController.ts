@@ -19,18 +19,8 @@ interface AuthRequest extends Request {
 
 // Payment method - only Khalti supported
 const PAYMENT_METHOD = 'KHALTI';
-
-// Khalti payment interfaces
-interface InitiatePaymentRequest {
-  bookingId: string;
-}
-
-interface VerifyPaymentRequest {
-  paymentId: string;
-  transactionId: string;
-  token: string;
-  amount: number;
-}
+const KHALTI_BASE_URL = process.env.KHALTI_BASE_URL || 'https://a.khalti.com/api/v2';
+const KHALTI_SECRET_KEY = process.env.KHALTI_SECRET_KEY || '97fbe616f94b4b0cab1a443dfa116206'; // Demo secret
 
 /**
  * Initiate a payment
@@ -47,9 +37,8 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
       });
     }
 
-    const { bookingId } = req.body as { bookingId: string };
+    const { bookingId, return_url } = req.body as { bookingId: string, return_url?: string };
 
-    // Validate required fields
     if (!bookingId) {
       return res.status(400).json({
         success: false,
@@ -57,7 +46,6 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
       });
     }
 
-    // Get booking details
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -77,50 +65,16 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
       });
     }
 
-    // Check if user owns this booking
-    if (booking.userId !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only pay for your own bookings'
-      });
-    }
-
-    // Check if booking already has a completed payment
-    const existingPayment = await prisma.payment.findFirst({
-      where: {
-        bookingId: bookingId,
-        status: PaymentStatus.PAID
-      }
-    });
-
-    if (existingPayment) {
-      return res.status(400).json({
-        success: false,
-        message: 'Booking is already paid'
-      });
-    }
-
-    // Generate unique transaction reference
-    const transactionId = `TXN-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-
-    // Create payment record
-    const payment = await prisma.payment.create({
-      data: {
-        bookingId: bookingId,
-        amount: booking.totalPrice,
-        paymentMethod: PAYMENT_METHOD,
-        transactionId: transactionId,
-        status: PaymentStatus.PENDING
-      }
-    });
+    // Generate unique transaction reference for purchase_order_id
+    const purchaseOrderId = `ORDER-${Date.now()}`;
 
     // Prepare Khalti payment gateway data
-    const paymentGatewayData = {
-      return_url: `${process.env.FRONTEND_URL}/payment/verify`,
-      website_url: process.env.FRONTEND_URL,
-      amount: booking.totalPrice * 100, // Khalti expects amount in paisa
-      purchase_order_id: transactionId,
-      purchase_order_name: `Booking for ${booking.court.venue.name}`,
+    const requestBody = {
+      return_url: return_url || `${process.env.FRONTEND_URL || 'http://localhost:5000'}/payment/success`,
+      website_url: process.env.FRONTEND_URL || 'http://localhost:5000',
+      amount: Math.round(booking.totalPrice * 100), // Khalti expects amount in paisa
+      purchase_order_id: purchaseOrderId,
+      purchase_order_name: `Booking for ${booking.court.venue.name} - ${booking.court.name}`,
       customer_info: {
         name: booking.user.fullName,
         email: booking.user.email,
@@ -128,26 +82,58 @@ export const initiatePayment = async (req: AuthRequest, res: Response): Promise<
       }
     };
 
+    console.log('[Khalti] Initiating payment for booking:', bookingId);
+
+    const khaltiResponse = await fetch(`${KHALTI_BASE_URL}/epayment/initiate/`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Key ${KHALTI_SECRET_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const khaltiData = await khaltiResponse.json() as any;
+
+    if (!khaltiResponse.ok) {
+      console.error('[Khalti] Initiation failed:', khaltiData);
+      return res.status(khaltiResponse.status).json({
+        success: false,
+        message: 'Failed to initiate Khalti payment',
+        error: khaltiData
+      });
+    }
+
+    // Create or update payment record with pidx
+    const payment = await prisma.payment.upsert({
+      where: { bookingId: bookingId },
+      update: {
+        amount: booking.totalPrice,
+        transactionId: khaltiData.pidx, // Store pidx in transactionId field initially
+        status: PaymentStatus.PENDING
+      },
+      create: {
+        bookingId: bookingId,
+        amount: booking.totalPrice,
+        paymentMethod: PAYMENT_METHOD,
+        transactionId: khaltiData.pidx,
+        status: PaymentStatus.PENDING
+      }
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Payment initiated successfully',
       data: {
         paymentId: payment.id,
-        transactionId: transactionId,
+        pidx: khaltiData.pidx,
+        payment_url: khaltiData.payment_url,
         amount: booking.totalPrice,
-        paymentMethod: PAYMENT_METHOD,
-        booking: {
-          id: booking.id,
-          venueName: booking.court.venue.name,
-          courtName: booking.court.name,
-          date: booking.bookingDate,
-          startTime: booking.startTime,
-          endTime: booking.endTime
-        },
-        paymentGatewayData: paymentGatewayData
+        purchase_order_id: purchaseOrderId
       }
     });
   } catch (error) {
+    console.error('[Payment Error]:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to initiate payment',
@@ -171,133 +157,98 @@ export const verifyPayment = async (req: AuthRequest, res: Response): Promise<Re
       });
     }
 
-    const { 
-      paymentId, 
-      transactionId,
-      // Khalti params
-      token,
-      amount
-    } = req.body as { paymentId: string; transactionId: string; token: string; amount: number };
+    const { pidx } = req.body as { pidx: string };
 
-    // Validate required fields
-    if (!paymentId || !transactionId || !token || !amount) {
+    if (!pidx) {
       return res.status(400).json({
         success: false,
-        message: 'Payment ID, transaction ID, token, and amount are required'
+        message: 'pidx is required for verification'
       });
     }
 
-    // Get payment record
-    const payment = await prisma.payment.findUnique({
-      where: { id: paymentId },
-      include: {
-        booking: {
-          include: {
-            court: {
-              include: {
-                venue: true
-              }
-            }
-          }
-        }
-      }
+    console.log('[Khalti] Verifying payment for pidx:', pidx);
+
+    const khaltiResponse = await fetch(`${KHALTI_BASE_URL}/epayment/lookup/`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Key ${KHALTI_SECRET_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ pidx })
     });
 
-    if (!payment) {
-      return res.status(404).json({
+    const khaltiData = await khaltiResponse.json() as any;
+
+    if (!khaltiResponse.ok) {
+      console.error('[Khalti] Verification lookup failed:', khaltiData);
+      return res.status(khaltiResponse.status).json({
         success: false,
-        message: 'Payment not found'
+        message: 'Failed to verify payment with Khalti',
+        error: khaltiData
       });
     }
 
-    // Check if user owns this payment's booking
-    if (payment.booking.userId !== userId) {
-      return res.status(403).json({
+    // Possible statuses: 'Completed', 'Pending', 'User cancelled', 'Expired', 'Refunded'
+    if (khaltiData.status !== 'Completed') {
+      return res.status(200).json({
         success: false,
-        message: 'Access denied'
+        message: `Payment status is ${khaltiData.status}`,
+        data: khaltiData
       });
     }
 
-    // Check if payment is already verified
-    if (payment.status === PaymentStatus.PAID) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment already verified'
-      });
-    }
-
-    // Verify Khalti payment
-    // In production, make API call to Khalti verification endpoint
-    // Example: POST https://khalti.com/api/v2/payment/verify/
-    // Headers: { Authorization: `Key ${process.env.KHALTI_SECRET_KEY}` }
-    // Body: { token, amount }
-    
-    let verificationSuccess = false;
-    let verificationMessage = '';
-    
-    // TODO: Implement actual Khalti verification
-    // const khaltiResponse = await verifyKhaltiPayment(token, amount);
-    // verificationSuccess = khaltiResponse.success;
-    
-    // Mock verification for now
-    verificationSuccess = true;
-    verificationMessage = 'Khalti payment verified successfully';
-
-    if (!verificationSuccess) {
-      // Update payment status to failed
-      await prisma.payment.update({
-        where: { id: paymentId },
-        data: {
-          status: PaymentStatus.FAILED
-        }
-      });
-
-      return res.status(400).json({
-        success: false,
-        message: 'Payment verification failed'
-      });
-    }
-
-    // Update payment status to completed
+    // Update payment record and booking in a transaction
     const updatedPayment = await prisma.$transaction(async (tx) => {
+      // Find payment by pidx (stored in transactionId)
+      const payment = await tx.payment.findFirst({
+        where: { transactionId: pidx }
+      });
+
+      if (!payment) {
+        throw new Error('Payment record not found for this pidx');
+      }
+
       // Update payment
-      const payment = await tx.payment.update({
-        where: { id: paymentId },
+      const updated = await tx.payment.update({
+        where: { id: payment.id },
         data: {
           status: PaymentStatus.PAID,
-          paidAt: new Date()
+          paidAt: new Date(),
+          // We can store the final transaction_id from Khalti if they provide it in lookup
+          // For now we keep the pidx or updating it if needed
         }
       });
 
-      // Update booking payment status
+      // Update booking
       await tx.booking.update({
         where: { id: payment.bookingId },
         data: {
           paymentStatus: PaymentStatus.PAID,
-          status: 'CONFIRMED' as any // Use as any if enum import is tricky, but preferably use BookingStatus
+          status: 'CONFIRMED' as any
         }
       });
 
-      // Create notification for user
+      // Create notification
       await tx.notification.create({
         data: {
           userId: userId,
           title: 'Payment Successful',
-          message: `Your payment of NPR ${payment.amount} has been confirmed. Booking is now confirmed.`,
+          message: `Your payment of NPR ${payment.amount} for pidx ${pidx} has been confirmed.`,
           type: 'PAYMENT',
           isRead: false
         }
       });
 
-      return payment;
+      return updated;
     });
 
     return res.status(200).json({
       success: true,
-      message: verificationMessage,
+      message: 'Payment verified successfully',
       data: updatedPayment
     });
   } catch (error) {
+    console.error('[Verify Error]:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to verify payment',

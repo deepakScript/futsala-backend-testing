@@ -11,7 +11,7 @@ const prismaClient_1 = __importDefault(require("../config/prismaClient"));
  */
 const getProfile = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         if (!userId) {
             return res.status(401).json({
                 success: false,
@@ -58,7 +58,7 @@ exports.getProfile = getProfile;
  */
 const updateProfile = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         if (!userId) {
             return res.status(401).json({
                 success: false,
@@ -123,7 +123,7 @@ exports.updateProfile = updateProfile;
  */
 const deleteAccount = async (req, res) => {
     try {
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
         if (!userId) {
             return res.status(401).json({
                 success: false,
