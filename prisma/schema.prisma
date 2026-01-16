@@ -40,7 +40,6 @@ model User {
   isVerified    Boolean       @default(false)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
-  
   bookings      Booking[]
   venues        Venue[]
   reviews       Review[]

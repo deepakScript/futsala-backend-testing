@@ -13,7 +13,7 @@ interface AuthRequest extends Request {
 // Interface for create review request body
 interface CreateReviewBody {
   rating: number;
-  comment: string;
+  comment?: string;
 }
 
 /**
@@ -35,10 +35,10 @@ export const createReview = async (req: AuthRequest, res: Response): Promise<Res
     const { rating, comment } = req.body as CreateReviewBody;
 
     // Validate required fields
-    if (!rating || !comment) {
+    if (!rating) {
       return res.status(400).json({
         success: false,
-        message: 'Rating and comment are required'
+        message: 'Rating is required'
       });
     }
 
@@ -103,7 +103,7 @@ export const createReview = async (req: AuthRequest, res: Response): Promise<Res
           userId: userId,
           venueId: futsalId,
           rating: rating,
-          comment: comment
+          comment: comment || ""
         },
         include: {
           user: {

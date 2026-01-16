@@ -46,7 +46,8 @@ export const getAllVenues = async (req: Request, res: Response): Promise<Respons
       },
       orderBy: {
         rating: 'desc'
-      }
+      },
+      take: 5 // Limit to 5 venues
     });
 
     return res.status(200).json({
