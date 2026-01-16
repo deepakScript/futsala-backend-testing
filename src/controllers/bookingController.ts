@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import { BookingStatus } from '@prisma/client';
 import prisma from '../config/prismaClient';
+import crypto from 'crypto';
 
 
 // BookingStatus enum imported from prisma client
@@ -214,6 +215,9 @@ export const createBooking = async (req: Request, res: Response): Promise<Respon
 
         const totalPrice = totalHours * court.pricePerHour;
 
+        // Generate 6-digit OTP
+        const otp = crypto.randomInt(100000, 999999).toString();
+
         // Check if slot is already booked (LOCKING/CHECKING within transaction)
         const existingBooking = await tx.booking.findFirst({
           where: {
@@ -249,7 +253,7 @@ export const createBooking = async (req: Request, res: Response): Promise<Respon
           throw new Error('Time slot is already booked');
         }
 
-        // Create booking
+        // Create booking with OTP
         return await tx.booking.create({
           data: {
             userId,
@@ -260,6 +264,7 @@ export const createBooking = async (req: Request, res: Response): Promise<Respon
             totalHours,
             totalPrice,
             notes,
+            otp,
             status: BookingStatus.PENDING
           },
           include: {
