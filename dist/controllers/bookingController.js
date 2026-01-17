@@ -223,6 +223,14 @@ const createBooking = async (req, res) => {
                         include: {
                             venue: true
                         }
+                    },
+                    user: {
+                        select: {
+                            id: true,
+                            fullName: true,
+                            email: true,
+                            phoneNumber: true
+                        }
                     }
                 }
             });
@@ -296,6 +304,14 @@ const getMyBookings = async (req, res) => {
                                 images: true
                             }
                         }
+                    }
+                },
+                user: {
+                    select: {
+                        id: true,
+                        fullName: true,
+                        email: true,
+                        phoneNumber: true
                     }
                 },
                 payment: true

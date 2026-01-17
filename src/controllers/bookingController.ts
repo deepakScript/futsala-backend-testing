@@ -272,6 +272,14 @@ export const createBooking = async (req: Request, res: Response): Promise<Respon
               include: {
                 venue: true
               }
+            },
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                phoneNumber: true
+              }
             }
           }
         });
@@ -350,6 +358,14 @@ export const getMyBookings = async (req: Request, res: Response): Promise<Respon
                 images: true
               }
             }
+          }
+        },
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phoneNumber: true
           }
         },
         payment: true
