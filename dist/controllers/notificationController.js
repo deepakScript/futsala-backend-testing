@@ -49,7 +49,7 @@ exports.getAllNotifications = getAllNotifications;
 const markAsRead = async (req, res) => {
     try {
         const userId = req.user?.userId;
-        const { id } = req.params;
+        const id = req.params.id;
         if (!userId) {
             return res.status(401).json({
                 success: false,

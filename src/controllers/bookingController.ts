@@ -33,7 +33,7 @@ interface RescheduleBookingBody {
  */
 export const checkAvailability = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const futsalId = req.params.futsalId || req.query.futsalId as string;
+    const futsalId = (req.params.futsalId || req.query.futsalId) as string;
     const { date } = req.query as { date?: string };
     
     if (!futsalId) {
@@ -103,14 +103,14 @@ export const checkAvailability = async (req: Request, res: Response): Promise<Re
     });
 
     console.log(`[checkAvailability] Found ${courts.length} courts for venue ${futsalId}`);
-    courts.forEach(c => {
+    courts.forEach((c: any) => {
       console.log(`  Court: ${c.name}, Slots: ${c.timeSlots.length}, Bookings: ${c.bookings.length}`);
     });
 
     // Process availability for each court into a flattened list of slots
     const flattenedAvailability: any[] = [];
     
-    courts.forEach(court => {
+    courts.forEach((court: any) => {
       const bookedSlots = court.bookings.map(b => ({
         startTime: b.startTime,
         endTime: b.endTime
@@ -380,7 +380,7 @@ export const getMyBookings = async (req: Request, res: Response): Promise<Respon
 export const getBookingById = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = req.user?.userId;
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     if (!userId) {
       return res.status(401).json({
@@ -417,7 +417,7 @@ export const getBookingById = async (req: Request, res: Response): Promise<Respo
     }
 
     // Check if user owns this booking or is the venue owner
-    if (booking.userId !== userId && booking.court.venue.ownerId !== userId) {
+    if (booking.userId !== userId && (booking as any).court.venue.ownerId !== userId) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -445,7 +445,7 @@ export const cancelBooking = async (req: Request, res: Response): Promise<Respon
   try {
     const userId = req.user?.userId;
 
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     if (!userId) {
       return res.status(401).json({
@@ -524,7 +524,7 @@ export const cancelBooking = async (req: Request, res: Response): Promise<Respon
 export const rescheduleBooking = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = req.user?.userId;
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { bookingDate, startTime, endTime } = req.body as RescheduleBookingBody;
 
     if (!userId) {

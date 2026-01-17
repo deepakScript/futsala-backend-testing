@@ -12,7 +12,7 @@ const prismaClient_1 = __importDefault(require("../config/prismaClient"));
 const createReview = async (req, res) => {
     try {
         const userId = req.user?.userId;
-        const { futsalId } = req.params;
+        const futsalId = req.params.futsalId;
         if (!userId) {
             return res.status(401).json({
                 success: false,
@@ -21,10 +21,10 @@ const createReview = async (req, res) => {
         }
         const { rating, comment } = req.body;
         // Validate required fields
-        if (!rating || !comment) {
+        if (!rating) {
             return res.status(400).json({
                 success: false,
-                message: 'Rating and comment are required'
+                message: 'Rating is required'
             });
         }
         // Validate rating range
@@ -81,7 +81,7 @@ const createReview = async (req, res) => {
                     userId: userId,
                     venueId: futsalId,
                     rating: rating,
-                    comment: comment
+                    comment: comment || ""
                 },
                 include: {
                     user: {
@@ -141,7 +141,7 @@ exports.createReview = createReview;
  */
 const getVenueReviews = async (req, res) => {
     try {
-        const { futsalId } = req.params;
+        const futsalId = req.params.futsalId;
         const { page = '1', limit = '10', sortBy = 'createdAt' } = req.query;
         // Parse pagination parameters
         const pageNum = parseInt(page);
@@ -202,7 +202,7 @@ const getVenueReviews = async (req, res) => {
             2: 0,
             1: 0
         };
-        ratingDistribution.forEach(item => {
+        ratingDistribution.forEach((item) => {
             distribution[item.rating] = item._count.rating;
         });
         return res.status(200).json({
@@ -239,7 +239,7 @@ exports.getVenueReviews = getVenueReviews;
 const deleteReview = async (req, res) => {
     try {
         const userId = req.user?.userId;
-        const { reviewId } = req.params;
+        const reviewId = req.params.reviewId;
         if (!userId) {
             return res.status(401).json({
                 success: false,

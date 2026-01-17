@@ -23,7 +23,7 @@ interface CreateReviewBody {
 export const createReview = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
     const userId = req.user?.userId;
-    const { futsalId } = req.params;
+    const futsalId = req.params.futsalId as string;
 
     if (!userId) {
       return res.status(401).json({
@@ -168,7 +168,7 @@ export const createReview = async (req: AuthRequest, res: Response): Promise<Res
  */
 export const getVenueReviews = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { futsalId } = req.params;
+    const futsalId = req.params.futsalId as string;
     const { page = '1', limit = '10', sortBy = 'createdAt' } = req.query;
 
     // Parse pagination parameters
@@ -238,7 +238,7 @@ export const getVenueReviews = async (req: Request, res: Response): Promise<Resp
       1: 0
     };
 
-    ratingDistribution.forEach(item => {
+    ratingDistribution.forEach((item: any) => {
       distribution[item.rating as keyof typeof distribution] = item._count.rating;
     });
 
@@ -275,7 +275,7 @@ export const getVenueReviews = async (req: Request, res: Response): Promise<Resp
 export const deleteReview = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
     const userId = req.user?.userId;
-    const { reviewId } = req.params;
+    const reviewId = req.params.reviewId as string;
 
     if (!userId) {
       return res.status(401).json({
