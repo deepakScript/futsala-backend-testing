@@ -6,13 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.rescheduleBooking = exports.cancelBooking = exports.getBookingById = exports.getMyBookings = exports.createBooking = exports.checkAvailability = void 0;
 const client_1 = require("@prisma/client");
 const prismaClient_1 = __importDefault(require("../config/prismaClient"));
+const crypto_1 = __importDefault(require("crypto"));
 /**
  * Check available time slots for a futsal
  * @route GET /availability/:futsalId?date=
  */
 const checkAvailability = async (req, res) => {
     try {
-        const futsalId = req.params.futsalId || req.query.futsalId;
+        const futsalId = (req.params.futsalId || req.query.futsalId);
         const { date } = req.query;
         if (!futsalId) {
             return res.status(400).json({
@@ -73,12 +74,12 @@ const checkAvailability = async (req, res) => {
             }
         });
         console.log(`[checkAvailability] Found ${courts.length} courts for venue ${futsalId}`);
-        courts.forEach(c => {
+        courts.forEach((c) => {
             console.log(`  Court: ${c.name}, Slots: ${c.timeSlots.length}, Bookings: ${c.bookings.length}`);
         });
         // Process availability for each court into a flattened list of slots
         const flattenedAvailability = [];
-        courts.forEach(court => {
+        courts.forEach((court) => {
             const bookedSlots = court.bookings.map(b => ({
                 startTime: b.startTime,
                 endTime: b.endTime
@@ -168,6 +169,8 @@ const createBooking = async (req, res) => {
                 throw new Error('Invalid time range');
             }
             const totalPrice = totalHours * court.pricePerHour;
+            // Generate 6-digit OTP
+            const otp = crypto_1.default.randomInt(100000, 999999).toString();
             // Check if slot is already booked (LOCKING/CHECKING within transaction)
             const existingBooking = await tx.booking.findFirst({
                 where: {
@@ -201,7 +204,7 @@ const createBooking = async (req, res) => {
             if (existingBooking) {
                 throw new Error('Time slot is already booked');
             }
-            // Create booking
+            // Create booking with OTP
             return await tx.booking.create({
                 data: {
                     userId,
@@ -212,6 +215,7 @@ const createBooking = async (req, res) => {
                     totalHours,
                     totalPrice,
                     notes,
+                    otp,
                     status: client_1.BookingStatus.PENDING
                 },
                 include: {
@@ -322,7 +326,7 @@ exports.getMyBookings = getMyBookings;
 const getBookingById = async (req, res) => {
     try {
         const userId = req.user?.userId;
-        const { id } = req.params;
+        const id = req.params.id;
         if (!userId) {
             return res.status(401).json({
                 success: false,
@@ -382,7 +386,7 @@ exports.getBookingById = getBookingById;
 const cancelBooking = async (req, res) => {
     try {
         const userId = req.user?.userId;
-        const { id } = req.params;
+        const id = req.params.id;
         if (!userId) {
             return res.status(401).json({
                 success: false,
@@ -454,7 +458,7 @@ exports.cancelBooking = cancelBooking;
 const rescheduleBooking = async (req, res) => {
     try {
         const userId = req.user?.userId;
-        const { id } = req.params;
+        const id = req.params.id;
         const { bookingDate, startTime, endTime } = req.body;
         if (!userId) {
             return res.status(401).json({
