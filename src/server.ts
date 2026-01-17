@@ -66,9 +66,7 @@ app.use((err: any, req: Request, res: Response, next: any) => {
 
 const PORT = process.env.PORT ?? 5000;
 
-if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-}
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 // Global unhandled promise rejection handler
 process.on("unhandledRejection", (reason, promise) => {
